@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';``
+import React, { useEffect, useState } from 'react'; ``
 import {
   View,
   Text,
@@ -11,7 +11,19 @@ import {
   TouchableOpacity,
 } from 'react-native';
 
+import { NativeStackNavigationProp, NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import { RootStackParamList } from './types';
+
+
+import { createStackNavigator } from '@react-navigation/stack';
+import { NavigationContainer } from '@react-navigation/native';
+import SettingsScreen from './SettingsScreen';
+
 //import BluetoothSerial from 'react-native-bluetooth-serial-next';
+
+type HomeScreenProps = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
+};
 
 // Mock Bluetooth implementation
 const BluetoothSerial = {
@@ -60,6 +72,11 @@ interface BluetoothDevice {
   address?: string;
 }
 
+interface AppState {
+  darkMode: boolean;
+  mockMode: boolean;
+}
+
 interface SensorData {
   T_Inside?: any;
   H_Inside?: any;
@@ -76,12 +93,20 @@ type BluetoothEventData = {
   data: string;
 };
 
+const Stack = createStackNavigator();
+
 const App: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
   const [dataReceived, setDataReceived] = useState<string>('');
   const [sensorData, setSensorData] = useState<SensorData>({});
+
+  // Add these state variables
+  const [appState, setAppState] = useState<AppState>({
+    darkMode: false,
+    mockMode: true, // Default to mock mode for development
+  });
 
   const generateMockSensorData = (): SensorData => {
     const randomValue = (min: number, max: number) =>
@@ -333,6 +358,29 @@ const App: React.FC = () => {
     }
   };
 
+  // Add these functions for settings
+  const toggleDarkMode = (value: boolean) => {
+    setAppState(prev => ({ ...prev, darkMode: value }));
+  };
+
+  const toggleMockMode = (value: boolean) => {
+    setAppState(prev => ({ ...prev, mockMode: value }));
+    // You might want to add logic here to switch between mock and real Bluetooth
+  };
+
+  const clearDevices = () => {
+    setDevices([]);
+    Alert.alert('Success', 'Device list cleared');
+  };
+
+  const resetApp = () => {
+    setDevices([]);
+    setConnectedDevice(null);
+    setIsEnabled(false);
+    setSensorData({});
+    Alert.alert('App Reset', 'App has been reset to initial state');
+  };
+
   // Renders each device item in the FlatList
   const renderDeviceItem: ListRenderItem<BluetoothDevice> = ({ item }) => (
     <TouchableOpacity
@@ -344,119 +392,166 @@ const App: React.FC = () => {
   );
 
   // Main Component
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingBottom: 50 }} 
-    >
-    <View>
-      <Text style={styles.title}>RSK Solar Dehydrator</Text>
-
-      <Text style={styles.sectionTitle}>
-        Bluetooth Status: {isEnabled ? 'Enabled' : 'Disabled'}
-      </Text>
-      <TouchableOpacity
-        onPress={enableBluetooth}
-        disabled={isEnabled}
-        style={[styles.button, isEnabled && styles.buttonDisabled]}
-      >
-        <Text style={styles.buttonText}>Enable Bluetooth</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={disableBluetooth}
-        disabled={!isEnabled}
-        style={[styles.button, !isEnabled && styles.buttonDisabled]}
-      >
-        <Text style={styles.buttonText}>Disable Bluetooth</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={discoverDevices}
-        disabled={!isEnabled}
-        style={[styles.button, !isEnabled && styles.buttonDisabled]}
-      >
-        <Text style={styles.buttonText}>Discover Devices</Text>
-      </TouchableOpacity>
-
-      {connectedDevice ? (
-        <View>
-          <Text style={styles.connectedText}>
-            Connected to: {connectedDevice.name || connectedDevice.id}
-          </Text>
-          {/* <Button title="Disconnect" onPress={disconnectDevice} /> */}
-
+  //Create Home Screen component that contains your current UI
+  const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+    useEffect(() => {
+      navigation.setOptions({
+        headerRight: () => (
           <TouchableOpacity
-            onPress={disconnectDevice}
-            style = {styles.button}
+            onPress={() => navigation.navigate('Settings')}
+            style={{ marginRight: 15 }}
           >
-            <Text style = {styles.buttonText}>Disconnect</Text>
+            <Text style={{ fontSize: 16, color: '#007AFF' }}>Settings</Text>
+          </TouchableOpacity>
+        ),
+      });
+    }, [navigation]);
+
+    return (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 50 }}
+      >
+        <View>
+          {/* <Text style={styles.title}>RSK Solar Dehydrator</Text> */}
+
+          <Text style={styles.sectionTitle}>
+            Bluetooth Status: {isEnabled ? 'Enabled' : 'Disabled'}
+          </Text>
+          <TouchableOpacity
+            onPress={enableBluetooth}
+            disabled={isEnabled}
+            style={[styles.button, isEnabled && styles.buttonDisabled]}
+          >
+            <Text style={styles.buttonText}>Enable Bluetooth</Text>
           </TouchableOpacity>
 
-          <Text style={styles.sectionTitle}>Sensor Data:</Text>
-          <View style={styles.table}>
-            <View style={styles.tableRow}>
-              <Text style={styles.tableHeader}>Sensor</Text>
-              <Text style={styles.tableHeader}>Temp (°C)</Text>
-              <Text style={styles.tableHeader}>Humidity (%)</Text>
-            </View>
-            {['Inside', 'Middle', 'Outside'].map(loc => {
-              let displayLoc = loc; // Default to the original name
-              if (loc === 'Inside') {
-                displayLoc = 'Lower Tray';
-              } else if (loc === 'Middle') {
-                displayLoc = 'Upper Tray';
-              }
-              return (
-                <View style={styles.tableRow} key={loc}>
-                  <Text style={styles.tableCell}>{displayLoc}</Text> {/* Changed here */}
-                  <Text style={styles.tableCell}>{(sensorData as any)[`T_${loc}`] || 'N/A'}</Text>
-                  <Text style={styles.tableCell}>{(sensorData as any)[`H_${loc}`] || 'N/A'}</Text>
+          <TouchableOpacity
+            onPress={disableBluetooth}
+            disabled={!isEnabled}
+            style={[styles.button, !isEnabled && styles.buttonDisabled]}
+          >
+            <Text style={styles.buttonText}>Disable Bluetooth</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={discoverDevices}
+            disabled={!isEnabled}
+            style={[styles.button, !isEnabled && styles.buttonDisabled]}
+          >
+            <Text style={styles.buttonText}>Discover Devices</Text>
+          </TouchableOpacity>
+
+          {connectedDevice ? (
+            <View>
+              <Text style={styles.connectedText}>
+                Connected to: {connectedDevice.name || connectedDevice.id}
+              </Text>
+              {/* <Button title="Disconnect" onPress={disconnectDevice} /> */}
+
+              <TouchableOpacity
+                onPress={disconnectDevice}
+                style={styles.button}
+              >
+                <Text style={styles.buttonText}>Disconnect</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.sectionTitle}>Sensor Data:</Text>
+              <View style={styles.table}>
+                <View style={styles.tableRow}>
+                  <Text style={styles.tableHeader}>Sensor</Text>
+                  <Text style={styles.tableHeader}>Temp (°C)</Text>
+                  <Text style={styles.tableHeader}>Humidity (%)</Text>
                 </View>
-              );
-            })}
-          </View>
+                {['Inside', 'Middle', 'Outside'].map(loc => {
+                  let displayLoc = loc;
+                  if (loc === 'Inside') {
+                    displayLoc = 'Lower Tray';
+                  } else if (loc === 'Middle') {
+                    displayLoc = 'Upper Tray';
+                  }
+                  return (
+                    <View style={styles.tableRow} key={loc}>
+                      <Text style={styles.tableCell}>{String(displayLoc)}</Text>
+                      <Text style={styles.tableCell}>
+                        {String((sensorData as any)?.[`T_${loc}`] ?? 'N/A')}
+                      </Text>
+                      <Text style={styles.tableCell}>
+                        {String((sensorData as any)?.[`H_${loc}`] ?? 'N/A')}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
 
-          <View style={styles.weightBox}>
-            <Text style={styles.weightText}>
-              Weight: {sensorData['W'] || 'N/A'}g</Text>
-          </View>
-          {/* <Text style={styles.dataText}>FAN: {sensorData['FAN'] || 'N/A'}</Text> */}
-          <View
-            style={[
-              styles.powerBox,
-              sensorData['POWER'] === 'SOLAR'
-                ? styles.solarPower
-                : styles.acPower,
-            ]}>
-            <Text style={styles.powerBoxText}>
-              Power: {sensorData['POWER'] || 'N/A'}
-            </Text>
-          </View>
 
-          <Text style={styles.sectionTitle}>Controls:</Text>
-          <Button title="Tare Scale (T)" onPress={() => sendCommand('t')} />
-        </View>
-      ) : (
-        <View>
-          <Text style={styles.sectionTitle}>Available Devices:</Text>
-          <FlatList
-            data={devices}
-            renderItem={renderDeviceItem}
-            keyExtractor={item => item.id}
-            ListEmptyComponent={
-              <View>
-                <Text>
-                  No devices found. Ensure Bluetooth is on and device is
-                  discoverable.
+              <View style={styles.weightBox}>
+                <Text style={styles.weightText}>
+                  {`Weight: ${(sensorData['W'] || 'N/A')}g`}
                 </Text>
               </View>
-            }
-          />
+              {/* <Text style={styles.dataText}>FAN: {sensorData['FAN'] || 'N/A'}</Text> */}
+              <View
+                style={[
+                  styles.powerBox,
+                  sensorData['POWER'] === 'SOLAR'
+                    ? styles.solarPower
+                    : styles.acPower,
+                ]}>
+                <Text style={styles.powerBoxText}>
+                  Power: {sensorData['POWER'] || 'N/A'}
+                </Text>
+              </View>
+
+              <Text style={styles.sectionTitle}>Controls:</Text>
+              <Button title="Tare Scale (T)" onPress={() => sendCommand('t')} />
+            </View>
+          ) : (
+            <View>
+              <Text style={styles.sectionTitle}>Available Devices:</Text>
+              <FlatList
+                data={devices}
+                renderItem={renderDeviceItem}
+                keyExtractor={item => item.id}
+                scrollEnabled={false}
+                ListEmptyComponent={
+                  <View>
+                    <Text>
+                      No devices found. Ensure Bluetooth is on and device is discoverable.
+                    </Text>
+                  </View>
+                }
+              />
+            </View>
+          )}
         </View>
-      )}
-    </View>
-    </ScrollView>
+      </ScrollView>
+    );
+  };
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{ title: 'RSK Solar Dehydrator' }}
+        />
+        <Stack.Screen name="Settings">
+          {(props) => (
+            <SettingsScreen
+              {...props}
+              darkMode={appState.darkMode}
+              onDarkModeChange={toggleDarkMode}
+              mockMode={appState.mockMode}
+              onMockModeChange={toggleMockMode}
+              onClearDevices={clearDevices}
+              onResetApp={resetApp}
+            />
+          )}
+        </Stack.Screen>
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 };
 
@@ -465,8 +560,8 @@ const App: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24, 
-    backgroundColor: '#404040', // Lighter, modern background color
+    padding: 24,
+    backgroundColor: '#fff' // Lighter, modern background color
   },
   button: {
     backgroundColor: '#007AFF', // A nice blue for active buttons
@@ -514,7 +609,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     alignItems: 'center',
     shadowColor: '#000', // Soft shadow for depth
-    shadowOffset: {width: 0, height: 2},
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2, // Android shadow
@@ -526,7 +621,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000', // Shadow for depth
-    shadowOffset: {width: 0, height: 2},
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3, // For Android
@@ -534,12 +629,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28, // Slightly larger for prominence
     fontWeight: '900', // Stronger bold
-    color: '#ffff', // Darker, more professional text color
+    color: '#000', // Darker, more professional text color
     marginBottom: 0, // More space below the title
     textAlign: 'center',
     letterSpacing: 0.8, // Subtle letter spacing for a refined look
     textShadowColor: 'rgba(0, 0, 0, 0.05)', // Very subtle text shadow
-    textShadowOffset: {width: 1, height: 1},
+    textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
     marginTop: 20,
     fontFamily: 'Times New Roman',
@@ -547,7 +642,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20, // Slightly larger than original
     fontWeight: '600', // Medium bold
-    color: '#ffff', // Slightly lighter than main title color
+    color: '#000', // Slightly lighter than main title color
     marginTop: 25, // More top margin
     marginBottom: 15, // More bottom margin
     borderBottomWidth: 1, // Subtle separator
@@ -596,7 +691,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     backgroundColor: '#FFFFFF', // White background for table
     shadowColor: '#000', // Subtle shadow for depth
-    shadowOffset: {width: 0, height: 4},
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5, // Android shadow
@@ -628,6 +723,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Times New Roman',
   },
+});
+
+// Add dark mode styles
+const darkStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#121212',
+  },
+  title: {
+    color: '#FFFFFF',
+  },
+  sectionTitle: {
+    color: '#FFFFFF',
+    borderBottomColor: '#333',
+  },
+  // Add other dark mode style overrides as needed
 });
 
 export default App;
