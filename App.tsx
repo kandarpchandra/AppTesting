@@ -1,69 +1,28 @@
-import React, { useEffect, useState } from 'react'; ``
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   Button,
   FlatList,
-  StyleSheet,
-  Alert,
   ListRenderItem,
   ScrollView,
   TouchableOpacity,
+  Platform,
+  PermissionsAndroid,
+  Modal,
+  Pressable,
 } from 'react-native';
 
-import { NativeStackNavigationProp, NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
-
 
 import { createStackNavigator } from '@react-navigation/stack';
 import { NavigationContainer } from '@react-navigation/native';
 import SettingsScreen from './SettingsScreen';
 
-//import BluetoothSerial from 'react-native-bluetooth-serial-next';
+import BluetoothSerial from 'react-native-bluetooth-serial-next'; // Real Bluetooth module
 
-type HomeScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
-};
-
-// Mock Bluetooth implementation
-const BluetoothSerial = {
-  isEnabled: () => Promise.resolve(true),
-  enable: () => Promise.resolve(),
-  disable: () => Promise.resolve(),
-  listUnpaired: () =>
-    Promise.resolve([
-      {
-        id: 'mock-device-1',
-        name: 'Mock Device 1',
-        address: '00:11:22:33:44:55',
-      },
-      {
-        id: 'mock-device-2',
-        name: 'Mock Device 2',
-        address: '66:77:88:99:AA:BB',
-      },
-    ]),
-  list: () =>
-    Promise.resolve([
-      {
-        id: 'mock-paired-1',
-        name: 'Paired Device 1',
-        address: 'CC:DD:EE:FF:00:11',
-      },
-    ]),
-  connect: (id: string) => {
-    console.log(`Mock connecting to ${id}`);
-    return Promise.resolve();
-  },
-  disconnect: () => Promise.resolve(),
-  write: (command: string) => {
-    console.log(`Mock command sent: ${command}`);
-    return Promise.resolve();
-  },
-  on: () => console.log('Mock listener added'),
-  removeListener: () => console.log('Mock listener removed'),
-  isConnected: () => Promise.resolve(true),
-};
+import styles, { modalStyles, darkStyles } from './AppStyles'; // Adjusted path for AppStyles
 
 // Type definitions
 interface BluetoothDevice {
@@ -89,8 +48,21 @@ interface SensorData {
   POWER?: string;
 }
 
-type BluetoothEventData = {
+interface BluetoothEventData {
   data: string;
+}
+
+// Props interface for CustomAlertDialog
+interface AlertDialogProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  onClose: () => void;
+}
+
+// Props interface for HomeScreen
+type HomeScreenProps = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
 
 const Stack = createStackNavigator();
@@ -99,110 +71,53 @@ const App: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
-  const [dataReceived, setDataReceived] = useState<string>('');
+  const [dataReceived, setDataReceived] = useState<string>(''); // Not strictly used for display, but kept for state
   const [sensorData, setSensorData] = useState<SensorData>({});
 
-  // Add these state variables
+  const [alertDialogVisible, setAlertDialogVisible] = useState(false);
+  const [alertDialogTitle, setAlertDialogTitle] = useState('');
+  const [alertDialogMessage, setAlertDialogMessage] = useState('');
+
+  const [bluetoothReady, setBluetoothReady] = useState(false);
+
   const [appState, setAppState] = useState<AppState>({
     darkMode: false,
-    mockMode: true, // Default to mock mode for development
+    mockMode: false,
   });
 
-  const generateMockSensorData = (): SensorData => {
-    const randomValue = (min: number, max: number) =>
-      (Math.random() * (max - min) + min).toFixed(2);
-
-    return {
-      T_Inside: randomValue(20, 30),
-      H_Inside: randomValue(40, 60),
-      T_Middle: randomValue(18, 28),
-      H_Middle: randomValue(35, 55),
-      T_Outside: randomValue(10, 25),
-      H_Outside: randomValue(30, 50),
-      W: randomValue(0, 1000),
-      FAN: Math.random() > 0.5 ? 'ON' : 'OFF',
-      POWER: Math.random() > 0.5 ? 'SOLAR' : 'AC',
-    };
+  // Custom Alert Dialog Component
+  const CustomAlertDialog: React.FC<AlertDialogProps> = ({ visible, title, message, onClose }) => {
+    return (
+      <Modal
+        transparent={true}
+        animationType="fade"
+        visible={visible}
+        onRequestClose={onClose}
+      >
+        <Pressable style={modalStyles.overlay} onPress={onClose}>
+          <Pressable style={modalStyles.alertContainer} onPress={(e) => e.stopPropagation()}>
+            <Text style={modalStyles.alertTitle}>{title}</Text>
+            <Text style={modalStyles.alertMessage}>{message}</Text>
+            <TouchableOpacity onPress={onClose} style={modalStyles.alertButton}>
+              <Text style={modalStyles.alertButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
   };
 
-  // Simulates receiving data from Bluetooth device every 2 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (connectedDevice) {
-        const mockData = generateMockSensorData();
-        const dataString = `--- Current Data ---\nT_Inside:${mockData.T_Inside},H_Inside:${mockData.H_Inside},T_Middle:${mockData.T_Middle},H_Middle:${mockData.H_Middle},T_Outside:${mockData.T_Outside},H_Outside:${mockData.H_Outside},W:${mockData.W},FAN:${mockData.FAN},POWER:${mockData.POWER}`;
-        parseAndDisplayData(dataString);
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [connectedDevice]);
-
-  const requestBluetoothPermissions = async (): Promise<void> => {
-    console.log('Mock: Skipping permission requests in development');
+  const showAlertDialog = (title: string, message: string) => {
+    setAlertDialogTitle(title);
+    setAlertDialogMessage(message);
+    setAlertDialogVisible(true);
   };
 
-  // Parses incoming sensor data string and updates state
-  const parseAndDisplayData = (dataString: string): void => {
-    if (!dataString || typeof dataString !== 'string') {
-      console.warn('Invalid data string received:', dataString);
-      return;
-    }
-
-    const lines = dataString.split('\n');
-    // Find the line that starts with "T_Inside:" (or any other consistent data key)
-    // This ensures we always get the line with the actual sensor readings.
-    const dataLine = lines.find(line => line.includes('T_Inside:'));
-
-    if (!dataLine) {
-      console.warn('No data line found in packet:', dataString);
-      return;
-    }
-
-    const parsedData: SensorData = {};
-    // Now split the dataLine directly
-    const parts = dataLine.split(',');
-
-    parts.forEach(part => {
-      const [key, value] = part.split(':');
-      if (key && value) {
-        parsedData[key.trim() as keyof SensorData] = value.trim();
-      }
-    });
-
-    setSensorData(parsedData);
+  const closeAlertDialog = () => {
+    setAlertDialogVisible(false);
   };
 
-  /*useEffect(() => {
-    requestBluetoothPermissions();
-
-    BluetoothSerial.isEnabled().then((enabled: boolean) => {
-      setIsEnabled(enabled);
-    });
-
-    const onDataReceived = (data: BluetoothEventData) => {
-      console.log('Received data:', data.data);
-      parseAndDisplayData(data.data);
-    };
-
-    const onDisconnect = () => {
-      console.log('Device disconnected');
-      setConnectedDevice(null);
-      Alert.alert('Disconnected', 'Bluetooth device disconnected.');
-    };
-
-    BluetoothSerial.on('read', onDataReceived);
-    BluetoothSerial.on('disconnect', onDisconnect);
-
-    return () => {
-      BluetoothSerial.removeListener('read', onDataReceived);
-      BluetoothSerial.removeListener('disconnect', onDisconnect);
-      if (connectedDevice) {
-        BluetoothSerial.disconnect();
-      }
-    };
-  }, [connectedDevice]);
-
+  // Request Bluetooth and Location Permissions (Android specific)
   const requestBluetoothPermissions = async (): Promise<void> => {
     if (Platform.OS === 'android') {
       const apiLevel = Platform.Version;
@@ -228,10 +143,10 @@ const App: React.FC = () => {
             buttonPositive: 'OK',
           },
         );
-        
+
         if (bluetoothScanGranted !== PermissionsAndroid.RESULTS.GRANTED ||
-            bluetoothConnectGranted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission Denied', 'Bluetooth permissions are required to use this app.');
+          bluetoothConnectGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+          showAlertDialog('Permission Denied', 'Bluetooth permissions are required to use this app.');
           return;
         }
       }
@@ -246,13 +161,70 @@ const App: React.FC = () => {
           buttonPositive: 'OK',
         },
       );
-      
+
       if (grantedLocation !== PermissionsAndroid.RESULTS.GRANTED) {
-        Alert.alert('Permission Denied', 'Location permission is required for Bluetooth discovery.');
+        showAlertDialog('Permission Denied', 'Location permission is required for Bluetooth discovery.');
       }
     }
   };
 
+  // Effect hook to manage Bluetooth state and listeners
+  useEffect(() => {
+
+    const initBluetooth = async () => {
+      try {
+        if (!BluetoothSerial) {
+          showAlertDialog('Error', 'Bluetooth module not available');
+          return;
+        }
+
+        const enabled = await BluetoothSerial.isEnabled();
+        setIsEnabled(enabled);
+        setBluetoothReady(true);
+
+        // Rest of your existing initialization code...
+        requestBluetoothPermissions();
+
+        const onDataReceived = (data: BluetoothEventData) => {
+          console.log('Received data:', data.data);
+          parseAndDisplayData(data.data);
+        };
+
+        // Check initial Bluetooth status
+        // Add null check for BluetoothSerial
+        BluetoothSerial && BluetoothSerial.isEnabled().then((enabled: boolean) => {
+          setIsEnabled(enabled);
+        });
+
+        const onDisconnect = () => {
+          console.log('Device disconnected');
+          setConnectedDevice(null);
+          showAlertDialog('Disconnected', 'Bluetooth device disconnected.');
+        };
+
+        // Attach listeners with null check for BluetoothSerial
+        BluetoothSerial && BluetoothSerial.on('read', onDataReceived);
+        BluetoothSerial && BluetoothSerial.on('disconnect', onDisconnect);
+
+        // Cleanup function for listeners and disconnection on component unmount
+        return () => {
+          // Remove listeners with null check for BluetoothSerial
+          BluetoothSerial && BluetoothSerial.removeListener('read', onDataReceived);
+          BluetoothSerial && BluetoothSerial.removeListener('disconnect', onDisconnect);
+          if (connectedDevice) {
+            // Disconnect with null check for BluetoothSerial
+            BluetoothSerial && BluetoothSerial.disconnect();
+          }
+        }
+      } catch (error) {
+        console.error('Bluetooth init error:', error);
+      }
+    };
+
+    initBluetooth();
+  }, []);
+
+  // Parses incoming sensor data string and updates state
   const parseAndDisplayData = (dataString: string): void => {
     if (!dataString || typeof dataString !== 'string') {
       console.warn('Invalid data string received:', dataString);
@@ -260,15 +232,15 @@ const App: React.FC = () => {
     }
 
     const lines = dataString.split('\n');
-    const latestLine = lines[lines.length - 2] || lines[lines.length - 1];
+    const dataLine = lines.find(line => line.includes('T_Inside:'));
 
-    if (!latestLine || !latestLine.startsWith('--- Current Data ---')) {
-      console.warn('Incomplete or malformed data packet:', latestLine);
+    if (!dataLine) {
+      console.warn('No data line found in packet:', dataString);
       return;
     }
 
     const parsedData: SensorData = {};
-    const parts = latestLine.split(',');
+    const parts = dataLine.split(',');
 
     parts.forEach(part => {
       const [key, value] = part.split(':');
@@ -276,26 +248,36 @@ const App: React.FC = () => {
         parsedData[key.trim() as keyof SensorData] = value.trim();
       }
     });
-    
+
     setSensorData(parsedData);
-  }; */
+  };
 
   // Bluetooth control functions
   const enableBluetooth = async (): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     try {
       await BluetoothSerial.enable();
       setIsEnabled(true);
       console.log('Bluetooth enabled');
     } catch (error) {
       console.error('Failed to enable Bluetooth:', error);
-      Alert.alert(
+      showAlertDialog(
         'Error',
-        'Failed to enable Bluetooth. Please enable it manually.',
+        'Failed to enable Bluetooth. Please enable it manually from settings.',
       );
     }
   };
 
   const disableBluetooth = async (): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     try {
       await BluetoothSerial.disable();
       setIsEnabled(false);
@@ -304,18 +286,25 @@ const App: React.FC = () => {
       console.log('Bluetooth disabled');
     } catch (error) {
       console.error('Failed to disable Bluetooth:', error);
+      showAlertDialog('Error', 'Failed to disable Bluetooth.');
     }
   };
 
   const discoverDevices = async (): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     try {
       const unpaired =
         (await BluetoothSerial.listUnpaired()) as BluetoothDevice[];
       const paired = (await BluetoothSerial.list()) as BluetoothDevice[];
       setDevices([...paired, ...unpaired]);
+      showAlertDialog('Discovery Complete', `Found ${paired.length + unpaired.length} devices.`);
     } catch (error) {
       console.error('Failed to discover devices:', error);
-      Alert.alert(
+      showAlertDialog(
         'Error',
         'Failed to discover devices. Check permissions and Bluetooth status.',
       );
@@ -323,38 +312,55 @@ const App: React.FC = () => {
   };
 
   const connectToDevice = async (device: BluetoothDevice): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     try {
       await BluetoothSerial.connect(device.id);
       setConnectedDevice(device);
-      Alert.alert('Connected', `Connected to ${device.name || device.id}`);
+      showAlertDialog('Connected', `Connected to ${device.name || device.id}`);
     } catch (error) {
       console.error('Failed to connect:', error);
-      Alert.alert('Error', `Failed to connect to ${device.name || device.id}.`);
+      showAlertDialog('Error', `Failed to connect to ${device.name || device.id}.`);
     }
   };
 
   const disconnectDevice = async (): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     try {
       await BluetoothSerial.disconnect();
       setConnectedDevice(null);
-      Alert.alert('Disconnected', 'Disconnected from device.');
+      showAlertDialog('Disconnected', 'Disconnected from device.');
     } catch (error) {
       console.error('Failed to disconnect:', error);
+      showAlertDialog('Error', 'Failed to disconnect from device.');
     }
   };
 
   const sendCommand = async (command: string): Promise<void> => {
+    // Add null check for BluetoothSerial
+    if (!BluetoothSerial) {
+      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
+      return;
+    }
     if (!connectedDevice) {
-      Alert.alert('Not Connected', 'Please connect to a device first.');
+      showAlertDialog('Not Connected', 'Please connect to a device first.');
       return;
     }
 
     try {
       await BluetoothSerial.write(command);
       console.log('Command sent:', command);
+      showAlertDialog('Command Sent', `Sent: ${command}`);
     } catch (error) {
       console.error('Failed to send command:', error);
-      Alert.alert('Error', 'Failed to send command.');
+      showAlertDialog('Error', 'Failed to send command.');
     }
   };
 
@@ -365,12 +371,11 @@ const App: React.FC = () => {
 
   const toggleMockMode = (value: boolean) => {
     setAppState(prev => ({ ...prev, mockMode: value }));
-    // You might want to add logic here to switch between mock and real Bluetooth
   };
 
   const clearDevices = () => {
     setDevices([]);
-    Alert.alert('Success', 'Device list cleared');
+    showAlertDialog('Success', 'Device list cleared');
   };
 
   const resetApp = () => {
@@ -378,21 +383,20 @@ const App: React.FC = () => {
     setConnectedDevice(null);
     setIsEnabled(false);
     setSensorData({});
-    Alert.alert('App Reset', 'App has been reset to initial state');
+    showAlertDialog('App Reset', 'App has been reset to initial state');
   };
 
   // Renders each device item in the FlatList
   const renderDeviceItem: ListRenderItem<BluetoothDevice> = ({ item }) => (
     <TouchableOpacity
       onPress={() => connectToDevice(item)}
-      style={styles.deviceItemButton} // Apply new style
+      style={styles.deviceItemButton}
     >
       <Text style={styles.deviceItemButtonText}>{`${item.name || item.id} - ${item.address || item.id}`}</Text>
     </TouchableOpacity>
   );
 
-  // Main Component
-  //Create Home Screen component that contains your current UI
+  // Home Screen Component
   const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     useEffect(() => {
       navigation.setOptions({
@@ -404,6 +408,7 @@ const App: React.FC = () => {
             <Text style={{ fontSize: 16, color: '#007AFF' }}>Settings</Text>
           </TouchableOpacity>
         ),
+        headerTitleStyle: styles.headerTitle,
       });
     }, [navigation]);
 
@@ -413,8 +418,6 @@ const App: React.FC = () => {
         contentContainerStyle={{ paddingBottom: 50 }}
       >
         <View>
-          {/* <Text style={styles.title}>RSK Solar Dehydrator</Text> */}
-
           <Text style={styles.sectionTitle}>
             Bluetooth Status: {isEnabled ? 'Enabled' : 'Disabled'}
           </Text>
@@ -447,7 +450,6 @@ const App: React.FC = () => {
               <Text style={styles.connectedText}>
                 Connected to: {connectedDevice.name || connectedDevice.id}
               </Text>
-              {/* <Button title="Disconnect" onPress={disconnectDevice} /> */}
 
               <TouchableOpacity
                 onPress={disconnectDevice}
@@ -484,13 +486,11 @@ const App: React.FC = () => {
                 })}
               </View>
 
-
               <View style={styles.weightBox}>
                 <Text style={styles.weightText}>
-                  {`Weight: ${(sensorData['W'] || 'N/A')}g`}
+                  {`Weight: ${String(sensorData['W'] ?? 'N/A')}g`}
                 </Text>
               </View>
-              {/* <Text style={styles.dataText}>FAN: {sensorData['FAN'] || 'N/A'}</Text> */}
               <View
                 style={[
                   styles.powerBox,
@@ -499,7 +499,7 @@ const App: React.FC = () => {
                     : styles.acPower,
                 ]}>
                 <Text style={styles.powerBoxText}>
-                  Power: {sensorData['POWER'] || 'N/A'}
+                  {`Power: ${String(sensorData['POWER'] ?? 'N/A')}`}
                 </Text>
               </View>
 
@@ -551,11 +551,22 @@ const App: React.FC = () => {
           )}
         </Stack.Screen>
       </Stack.Navigator>
+      <CustomAlertDialog
+        visible={alertDialogVisible}
+        title={alertDialogTitle}
+        message={alertDialogMessage}
+        onClose={closeAlertDialog}
+      />
     </NavigationContainer>
   );
 };
 
+export default App;
+// --- START: Stylesheet in src/styles/AppStyles.ts (content to be moved) ---
+// You will move this entire block to src/styles/AppStyles.ts
+// and update the import path at the top of this file.
 
+/*
 // Stylesheet for the component
 const styles = StyleSheet.create({
   container: {
@@ -723,6 +734,56 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Times New Roman',
   },
+  // Header Title style for Navigation
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#2C3E50', // Example: a dark grey color
+  },
+});
+
+// Styles for the custom alert dialog
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  alertContainer: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  alertMessage: {
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  alertButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  alertButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
 
 // Add dark mode styles
@@ -741,3 +802,5 @@ const darkStyles = StyleSheet.create({
 });
 
 export default App;
+*/
+// --- END: Stylesheet (Move this block to src/styles/AppStyles.ts) ---
