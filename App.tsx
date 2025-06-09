@@ -357,6 +357,29 @@ const App: React.FC = () => {
       console.log('USE_EFFECT_CLEANUP: Cleanup function running...');
       isMounted = false;
 
+      // Handle disconnection if needed
+      if (BluetoothSerial && connectedDevice) {
+        console.log('USE_EFFECT_CLEANUP: Checking connection status before forced disconnect.');
+        if (typeof BluetoothSerial.isConnected === 'function' && typeof BluetoothSerial.disconnect === 'function') {
+          BluetoothSerial.isConnected()
+            .then(connected => {
+              if (connected) {
+                console.log('USE_EFFECT_CLEANUP: Disconnecting in cleanup...');
+                return BluetoothSerial.disconnect()
+                  .then(() => console.log('USE_EFFECT_CLEANUP: Disconnect successful.'))
+                  .catch(e => console.warn('USE_EFFECT_CLEANUP: Disconnect error:', e.message));
+              } else {
+                console.log('USE_EFFECT_CLEANUP: Device already disconnected.');
+              }
+            })
+            .catch(e => console.warn('USE_EFFECT_CLEANUP: Connection check error:', e.message));
+        } else {
+          console.warn('USE_EFFECT_CLEANUP: BluetoothSerial methods not available. Skipping disconnect.');
+        }
+      } else {
+        console.log('USE_EFFECT_CLEANUP: No connected device or BluetoothSerial is null, skipping disconnect.');
+      }
+
       // Remove listeners if they exist
       if (BluetoothSerial && dataListener) {
         try {
@@ -375,25 +398,7 @@ const App: React.FC = () => {
           console.warn('USE_EFFECT_CLEANUP: Error removing disconnect listener:', e);
         }
       }
-
-      // Handle disconnection if needed
-      if (BluetoothSerial && connectedDevice) {
-        console.log('USE_EFFECT_CLEANUP: Checking connection status before forced disconnect.');
-        BluetoothSerial.isConnected()
-          .then(connected => {
-            if (connected) {
-              console.log('USE_EFFECT_CLEANUP: Disconnecting in cleanup...');
-              return BluetoothSerial.disconnect()
-                .then(() => console.log('USE_EFFECT_CLEANUP: Disconnect successful.'))
-                .catch(e => console.warn('USE_EFFECT_CLEANUP: Disconnect error:', e.message));
-            } else {
-              console.log('USE_EFFECT_CLEANUP: Device already disconnected.');
-            }
-          })
-          .catch(e => console.warn('USE_EFFECT_CLEANUP: Connection check error:', e.message));
-      } else {
-        console.log('USE_EFFECT_CLEANUP: No connected device or BluetoothSerial is null, skipping cleanup disconnect.');
-      }
+  
       console.log('USE_EFFECT_CLEANUP: Cleanup function finished.');
     };
   }, [parseAndDisplayData]); // Dependency is fine
