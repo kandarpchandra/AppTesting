@@ -1,8 +1,8 @@
 buildscript {
     ext {
-        buildToolsVersion = "34.0.0" // Update this too for consistency with API 36
+        buildToolsVersion = "36.0.0" // Update this too for consistency with API 36
         minSdkVersion = 24
-        compileSdkVersion = 36
+        compileSdkVersion = 35
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.0.21"

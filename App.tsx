@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,19 @@ import {
 } from 'react-native';
 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from './types';
+import { RootStackParamList } from './types'; // Assuming 'types.ts' exists
 
 import { createStackNavigator } from '@react-navigation/stack';
 import { NavigationContainer } from '@react-navigation/native';
-import SettingsScreen from './SettingsScreen';
+import SettingsScreen from './SettingsScreen'; // Assuming 'SettingsScreen.tsx' exists
 
-import BluetoothSerial from 'react-native-bluetooth-serial-next'; // Real Bluetooth module
+import BluetoothSerial from 'react-native-bluetooth-serial-next';
+// GLOBAL CHECK: This log will tell us the value of BluetoothSerial right after import.
+console.log('GLOBAL CHECK: BluetoothSerial module after import (TOP OF FILE):', BluetoothSerial);
 
-import styles, { modalStyles, darkStyles } from './AppStyles'; // Adjusted path for AppStyles
+import styles, { modalStyles, darkStyles } from './AppStyles'; // Assuming 'AppStyles.ts' exists
 
-// Type definitions
+// Type definitions (unchanged)
 interface BluetoothDevice {
   id: string;
   name: string | null;
@@ -52,7 +54,6 @@ interface BluetoothEventData {
   data: string;
 }
 
-// Props interface for CustomAlertDialog
 interface AlertDialogProps {
   visible: boolean;
   title: string;
@@ -60,7 +61,6 @@ interface AlertDialogProps {
   onClose: () => void;
 }
 
-// Props interface for HomeScreen
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
@@ -68,10 +68,13 @@ type HomeScreenProps = {
 const Stack = createStackNavigator();
 
 const App: React.FC = () => {
+  // APP COMPONENT START: This logs when the App component function begins executing.
+  console.log('APP_RENDER: App component function START. (Initial render or re-render)');
+
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
-  const [dataReceived, setDataReceived] = useState<string>(''); // Not strictly used for display, but kept for state
+  const [dataReceived, setDataReceived] = useState<string>('');
   const [sensorData, setSensorData] = useState<SensorData>({});
 
   const [alertDialogVisible, setAlertDialogVisible] = useState(false);
@@ -79,14 +82,21 @@ const App: React.FC = () => {
   const [alertDialogMessage, setAlertDialogMessage] = useState('');
 
   const [bluetoothReady, setBluetoothReady] = useState(false);
+  const [connectionState, setConnectionState] = useState<
+    'disconnected' | 'connecting' | 'connected' | 'error'
+  >('disconnected');
 
   const [appState, setAppState] = useState<AppState>({
     darkMode: false,
     mockMode: false,
   });
 
-  // Custom Alert Dialog Component
+  // This log will re-run on every render, showing state changes.
+  console.log('APP_RENDER: Current state: isEnabled=', isEnabled, 'bluetoothReady=', bluetoothReady, 'connectedDevice=', connectedDevice);
+
+
   const CustomAlertDialog: React.FC<AlertDialogProps> = ({ visible, title, message, onClose }) => {
+    console.log('ALERT: CustomAlertDialog rendered. Visible:', visible);
     return (
       <Modal
         transparent={true}
@@ -108,21 +118,25 @@ const App: React.FC = () => {
   };
 
   const showAlertDialog = (title: string, message: string) => {
+    console.log(`ALERT: Showing Alert: ${title} - ${message}`);
     setAlertDialogTitle(title);
     setAlertDialogMessage(message);
     setAlertDialogVisible(true);
   };
 
   const closeAlertDialog = () => {
+    console.log('ALERT: Closing Alert');
     setAlertDialogVisible(false);
   };
 
-  // Request Bluetooth and Location Permissions (Android specific)
-  const requestBluetoothPermissions = async (): Promise<void> => {
+  const requestBluetoothPermissions = async (): Promise<boolean> => {
+    console.log('PERMISSIONS: requestBluetoothPermissions called.');
     if (Platform.OS === 'android') {
       const apiLevel = Platform.Version;
+      console.log('PERMISSIONS: Android API Level:', apiLevel);
 
       if (apiLevel >= 31) {
+        console.log('PERMISSIONS: Requesting BLUETOOTH_SCAN and BLUETOOTH_CONNECT permissions...');
         const bluetoothScanGranted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
           {
@@ -133,6 +147,7 @@ const App: React.FC = () => {
             buttonPositive: 'OK',
           },
         );
+        console.log('PERMISSIONS: BLUETOOTH_SCAN granted:', bluetoothScanGranted);
         const bluetoothConnectGranted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
           {
@@ -144,13 +159,17 @@ const App: React.FC = () => {
           },
         );
 
+        console.log('PERMISSIONS: BLUETOOTH_CONNECT granted:', bluetoothConnectGranted);
+
         if (bluetoothScanGranted !== PermissionsAndroid.RESULTS.GRANTED ||
           bluetoothConnectGranted !== PermissionsAndroid.RESULTS.GRANTED) {
           showAlertDialog('Permission Denied', 'Bluetooth permissions are required to use this app.');
-          return;
+          console.error('PERMISSIONS: Bluetooth Scan/Connect permissions denied.');
+          return false;
         }
       }
 
+      console.log('PERMISSIONS: Requesting ACCESS_FINE_LOCATION permission...');
       const grantedLocation = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
@@ -161,81 +180,92 @@ const App: React.FC = () => {
           buttonPositive: 'OK',
         },
       );
+      console.log('PERMISSIONS: ACCESS_FINE_LOCATION granted:', grantedLocation);
 
       if (grantedLocation !== PermissionsAndroid.RESULTS.GRANTED) {
         showAlertDialog('Permission Denied', 'Location permission is required for Bluetooth discovery.');
+        console.error('PERMISSIONS: Location permission denied.');
+        return false;
       }
     }
+    console.log('PERMISSIONS: All required Bluetooth permissions granted.');
+    return true;
   };
 
-  // Effect hook to manage Bluetooth state and listeners
-  useEffect(() => {
-
-    const initBluetooth = async () => {
-      try {
-        if (!BluetoothSerial) {
-          showAlertDialog('Error', 'Bluetooth module not available');
-          return;
-        }
-
-        const enabled = await BluetoothSerial.isEnabled();
-        setIsEnabled(enabled);
-        setBluetoothReady(true);
-
-        // Rest of your existing initialization code...
-        requestBluetoothPermissions();
-
-        const onDataReceived = (data: BluetoothEventData) => {
-          console.log('Received data:', data.data);
-          parseAndDisplayData(data.data);
-        };
-
-        // Check initial Bluetooth status
-        // Add null check for BluetoothSerial
-        BluetoothSerial && BluetoothSerial.isEnabled().then((enabled: boolean) => {
-          setIsEnabled(enabled);
-        });
-
-        const onDisconnect = () => {
-          console.log('Device disconnected');
-          setConnectedDevice(null);
-          showAlertDialog('Disconnected', 'Bluetooth device disconnected.');
-        };
-
-        // Attach listeners with null check for BluetoothSerial
-        BluetoothSerial && BluetoothSerial.on('read', onDataReceived);
-        BluetoothSerial && BluetoothSerial.on('disconnect', onDisconnect);
-
-        // Cleanup function for listeners and disconnection on component unmount
-        return () => {
-          // Remove listeners with null check for BluetoothSerial
-          BluetoothSerial && BluetoothSerial.removeListener('read', onDataReceived);
-          BluetoothSerial && BluetoothSerial.removeListener('disconnect', onDisconnect);
-          if (connectedDevice) {
-            // Disconnect with null check for BluetoothSerial
-            BluetoothSerial && BluetoothSerial.disconnect();
-          }
-        }
-      } catch (error) {
-        console.error('Bluetooth init error:', error);
+  const safeBluetoothOperation = useCallback(async (
+    operation: () => Promise<void>,
+    successMessage?: string,
+    errorMessage?: string
+  ) => {
+    console.log('SAFE_OP: safeBluetoothOperation called.');
+    try {
+      // CRITICAL CHECK: Ensure BluetoothSerial is available before attempting any operation.
+      if (!BluetoothSerial) {
+        console.error('SAFE_OP: CRITICAL ERROR: BluetoothSerial is NULL or UNDEFINED inside safeBluetoothOperation!');
+        showAlertDialog('Error', 'Bluetooth module not available for operation.');
+        throw new Error('Bluetooth module not available');
       }
-    };
-
-    initBluetooth();
+      console.log('SAFE_OP: BluetoothSerial confirmed available before executing operation.');
+      await operation();
+      if (successMessage) {
+        showAlertDialog('Success', successMessage);
+        console.log(`SAFE_OP: Success: ${successMessage}`);
+      }
+    } catch (error: any) {
+      console.error('SAFE_OP: Bluetooth error during operation:', error);
+      showAlertDialog('Error', errorMessage || (error.message || 'An unknown Bluetooth error occurred.'));
+      throw error;
+    }
   }, []);
 
-  // Parses incoming sensor data string and updates state
-  const parseAndDisplayData = (dataString: string): void => {
+  const safeDisconnect = useCallback(async () => {
+    console.log('DISCONNECT: safeDisconnect called.');
+    // CRITICAL CHECK: Ensure BluetoothSerial is available before attempting disconnect.
+    if (!BluetoothSerial) {
+      console.warn("DISCONNECT: BluetoothSerial module is NULL or UNDEFINED. Cannot proceed with disconnect.");
+      showAlertDialog('Warning', 'Bluetooth module not ready for disconnect.');
+      return;
+    }
+
+    try {
+      // Check if we're actually connected before trying to disconnect
+      console.log('DISCONNECT: Checking if device is currently connected via BluetoothSerial.isConnected()...');
+      const isConnected = await BluetoothSerial.isConnected();
+      console.log('DISCONNECT: BluetoothSerial.isConnected() returned:', isConnected);
+      console.log('DISCONNECT: connectedDevice state (before disconnect attempt):', connectedDevice);
+
+      if (isConnected && connectedDevice) {
+        console.log('DISCONNECT: Attempting actual disconnect call for:', connectedDevice.name || connectedDevice.id);
+        await BluetoothSerial.disconnect(); // This is the line that caused the previous error conceptually
+        setConnectedDevice(null);
+        setConnectionState('disconnected');
+        showAlertDialog('Success', 'Device disconnected successfully');
+        console.log('DISCONNECT: Disconnect call successful. State updated.');
+      } else {
+        console.log('DISCONNECT: Device not reported as connected or connectedDevice state is null. Skipping disconnect.');
+        showAlertDialog('Info', 'No device currently connected to disconnect.');
+      }
+    } catch (error: any) {
+      console.error('DISCONNECT: Error during BluetoothSerial.disconnect() call:', error);
+      showAlertDialog('Error', 'Failed to disconnect from device');
+      throw error;
+    }
+  }, [connectedDevice]);
+
+  const parseAndDisplayData = useCallback((dataString: string): void => {
+    console.log('DATA_PARSE: parseAndDisplayData called with raw string:', dataString);
     if (!dataString || typeof dataString !== 'string') {
-      console.warn('Invalid data string received:', dataString);
+      console.warn('DATA_PARSE: Invalid data string received:', dataString);
       return;
     }
 
     const lines = dataString.split('\n');
     const dataLine = lines.find(line => line.includes('T_Inside:'));
+    console.log('DATA_PARSE: Data lines:', lines);
+    console.log('DATA_PARSE: Found dataLine:', dataLine);
 
     if (!dataLine) {
-      console.warn('No data line found in packet:', dataString);
+      console.warn('DATA_PARSE: No data line found in packet:', dataString);
       return;
     }
 
@@ -248,222 +278,351 @@ const App: React.FC = () => {
         parsedData[key.trim() as keyof SensorData] = value.trim();
       }
     });
-
+    console.log('DATA_PARSE: Parsed Sensor Data:', parsedData);
     setSensorData(parsedData);
+  }, []);
+
+  useEffect(() => {
+    console.log('USE_EFFECT_INIT: Bluetooth Initialization useEffect triggered.');
+    let isMounted = true;
+    let dataListener: any = null;
+    let disconnectListener: any = null;
+
+    const initBluetooth = async () => {
+      console.log('USE_EFFECT_INIT: initBluetooth async function started.');
+      try {
+        // CRITICAL CHECK: This is inside the async function, checking BluetoothSerial again.
+        if (!BluetoothSerial) {
+          console.error('USE_EFFECT_INIT: CRITICAL ERROR: BluetoothSerial is NULL or UNDEFINED inside initBluetooth during useEffect!');
+          throw new Error('Bluetooth module not available');
+        }
+        console.log('USE_EFFECT_INIT: BluetoothSerial confirmed available in initBluetooth.');
+
+        const permissionsGranted = await requestBluetoothPermissions();
+        console.log('USE_EFFECT_INIT: Permissions request result:', permissionsGranted);
+        if (!permissionsGranted || !isMounted) {
+          console.log('USE_EFFECT_INIT: Permissions not granted or component unmounted. Aborting init.');
+          setBluetoothReady(false);
+          return;
+        }
+        console.log('USE_EFFECT_INIT: Permissions successfully granted.');
+
+        console.log('USE_EFFECT_INIT: Checking BluetoothSerial.isEnabled()...');
+        const enabled = await BluetoothSerial.isEnabled();
+        if (!isMounted) {
+          console.log('USE_EFFECT_INIT: Component unmounted after isEnabled check.');
+          return;
+        }
+        console.log('USE_EFFECT_INIT: Bluetooth enabled status:', enabled);
+
+        setIsEnabled(enabled);
+        setBluetoothReady(true);
+        console.log('USE_EFFECT_INIT: Bluetooth module initialized and ready. Setting bluetoothReady to true.');
+
+        // Setup event listeners
+        const onDataReceived = (data: BluetoothEventData) => {
+          if (!isMounted) return;
+          console.log('USE_EFFECT_INIT: Bluetooth data received:', data.data);
+          parseAndDisplayData(data.data);
+        };
+
+        const onDisconnect = () => {
+          if (!isMounted) return;
+          console.log('USE_EFFECT_INIT: Bluetooth device disconnected (event listener triggered)');
+          setConnectedDevice(null);
+          setConnectionState('disconnected');
+        };
+
+        // Store listener references for cleanup
+        dataListener = onDataReceived;
+        disconnectListener = onDisconnect;
+
+        BluetoothSerial.on('read', onDataReceived);
+        BluetoothSerial.on('disconnect', onDisconnect);
+        console.log('USE_EFFECT_INIT: Bluetooth event listeners registered.');
+
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.error('USE_EFFECT_INIT: Bluetooth init error caught in useEffect:', error);
+        setBluetoothReady(false);
+        showAlertDialog('Initialization Error', error.message);
+      }
+    };
+
+    initBluetooth();
+    console.log('USE_EFFECT_INIT: initBluetooth function called.');
+
+    // Cleanup function for useEffect
+    return () => {
+      console.log('USE_EFFECT_CLEANUP: Cleanup function running...');
+      isMounted = false;
+
+      // Remove listeners if they exist
+      if (BluetoothSerial && dataListener) {
+        try {
+          BluetoothSerial.removeListener('read', dataListener);
+          console.log('USE_EFFECT_CLEANUP: Removed data listener.');
+        } catch (e) {
+          console.warn('USE_EFFECT_CLEANUP: Error removing data listener:', e);
+        }
+      }
+
+      if (BluetoothSerial && disconnectListener) {
+        try {
+          BluetoothSerial.removeListener('disconnect', disconnectListener);
+          console.log('USE_EFFECT_CLEANUP: Removed disconnect listener.');
+        } catch (e) {
+          console.warn('USE_EFFECT_CLEANUP: Error removing disconnect listener:', e);
+        }
+      }
+
+      // Handle disconnection if needed
+      if (BluetoothSerial && connectedDevice) {
+        console.log('USE_EFFECT_CLEANUP: Checking connection status before forced disconnect.');
+        BluetoothSerial.isConnected()
+          .then(connected => {
+            if (connected) {
+              console.log('USE_EFFECT_CLEANUP: Disconnecting in cleanup...');
+              return BluetoothSerial.disconnect()
+                .then(() => console.log('USE_EFFECT_CLEANUP: Disconnect successful.'))
+                .catch(e => console.warn('USE_EFFECT_CLEANUP: Disconnect error:', e.message));
+            } else {
+              console.log('USE_EFFECT_CLEANUP: Device already disconnected.');
+            }
+          })
+          .catch(e => console.warn('USE_EFFECT_CLEANUP: Connection check error:', e.message));
+      } else {
+        console.log('USE_EFFECT_CLEANUP: No connected device or BluetoothSerial is null, skipping cleanup disconnect.');
+      }
+      console.log('USE_EFFECT_CLEANUP: Cleanup function finished.');
+    };
+  }, [parseAndDisplayData]); // Dependency is fine
+
+  const enableBluetooth = async () => {
+    console.log('BUTTON_PRESS: Enable Bluetooth button clicked.');
+    await safeBluetoothOperation(
+      async () => {
+        if (!BluetoothSerial) throw new Error('Bluetooth module not ready.');
+        await BluetoothSerial.enable();
+        setIsEnabled(true);
+        console.log('BUTTON_PRESS: Bluetooth enable operation successful.');
+      },
+      'Bluetooth enabled successfully',
+      'Failed to enable Bluetooth'
+    );
   };
 
-  // Bluetooth control functions
-  const enableBluetooth = async (): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
+  const disableBluetooth = async () => {
+    console.log('BUTTON_PRESS: Disable Bluetooth button clicked.');
+    await safeBluetoothOperation(
+      async () => {
+        if (!BluetoothSerial) throw new Error('Bluetooth module not ready.');
+        await BluetoothSerial.disable();
+        setIsEnabled(false);
+        setDevices([]);
+        setConnectedDevice(null);
+        console.log('BUTTON_PRESS: Bluetooth disable operation successful.');
+      },
+      'Bluetooth disabled successfully',
+      'Failed to disable Bluetooth'
+    );
+  };
+
+  const discoverDevices = async () => {
+    console.log('BUTTON_PRESS: Discover Devices button clicked.');
+    await safeBluetoothOperation(
+      async () => {
+        if (!BluetoothSerial) throw new Error('Bluetooth module not ready.');
+        const unpaired = (await BluetoothSerial.listUnpaired()) as BluetoothDevice[];
+        const paired = (await BluetoothSerial.list()) as BluetoothDevice[];
+        setDevices([...paired, ...unpaired]);
+        console.log('BUTTON_PRESS: Discovered devices:', [...paired, ...unpaired]);
+        showAlertDialog('Discovery Complete', `Found ${paired.length + unpaired.length} devices.`);
+      },
+      undefined,
+      'Failed to discover devices'
+    );
+  };
+
+  const connectToDevice = async (device: BluetoothDevice) => {
+    console.log('BUTTON_PRESS: Connect to Device initiated for:', device.name || device.id);
     try {
-      await BluetoothSerial.enable();
-      setIsEnabled(true);
-      console.log('Bluetooth enabled');
-    } catch (error) {
-      console.error('Failed to enable Bluetooth:', error);
-      showAlertDialog(
-        'Error',
-        'Failed to enable Bluetooth. Please enable it manually from settings.',
+      setConnectionState('connecting');
+      await safeBluetoothOperation(
+        async () => {
+          if (!BluetoothSerial) throw new Error('Bluetooth module not ready.');
+          console.log('BUTTON_PRESS: Calling BluetoothSerial.connect(', device.id, ')');
+          await BluetoothSerial.connect(device.id);
+          setConnectedDevice(device);
+          setConnectionState('connected');
+          console.log('BUTTON_PRESS: Successfully connected to:', device.name || device.id);
+        },
+        `Connected to ${device.name || device.id}`,
+        `Failed to connect to ${device.name || device.id}`
       );
-    }
-  };
-
-  const disableBluetooth = async (): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
-    try {
-      await BluetoothSerial.disable();
-      setIsEnabled(false);
-      setDevices([]);
-      setConnectedDevice(null);
-      console.log('Bluetooth disabled');
     } catch (error) {
-      console.error('Failed to disable Bluetooth:', error);
-      showAlertDialog('Error', 'Failed to disable Bluetooth.');
+      setConnectionState('error');
+      console.error('BUTTON_PRESS: Error during connectToDevice:', error);
     }
   };
 
-  const discoverDevices = async (): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
+  const disconnectDevice = async () => {
+    console.log('BUTTON_PRESS: Disconnect Device button clicked.');
     try {
-      const unpaired =
-        (await BluetoothSerial.listUnpaired()) as BluetoothDevice[];
-      const paired = (await BluetoothSerial.list()) as BluetoothDevice[];
-      setDevices([...paired, ...unpaired]);
-      showAlertDialog('Discovery Complete', `Found ${paired.length + unpaired.length} devices.`);
+      await safeDisconnect();
+      console.log('BUTTON_PRESS: Disconnect flow completed from button press.');
     } catch (error) {
-      console.error('Failed to discover devices:', error);
-      showAlertDialog(
-        'Error',
-        'Failed to discover devices. Check permissions and Bluetooth status.',
-      );
+      console.error("BUTTON_PRESS: Error calling safeDisconnect from disconnectDevice handler:", error);
     }
   };
 
-  const connectToDevice = async (device: BluetoothDevice): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
-    try {
-      await BluetoothSerial.connect(device.id);
-      setConnectedDevice(device);
-      showAlertDialog('Connected', `Connected to ${device.name || device.id}`);
-    } catch (error) {
-      console.error('Failed to connect:', error);
-      showAlertDialog('Error', `Failed to connect to ${device.name || device.id}.`);
-    }
+  const sendCommand = async (command: string) => {
+    console.log('BUTTON_PRESS: Send Command button clicked. Command:', command);
+    await safeBluetoothOperation(
+      async () => {
+        if (!connectedDevice || !BluetoothSerial) {
+          console.error('BUTTON_PRESS: Cannot send command: No device connected or Bluetooth module not ready.');
+          throw new Error('No device connected or Bluetooth module not ready.');
+        }
+        console.log('BUTTON_PRESS: Attempting to write command:', command);
+        await BluetoothSerial.write(command);
+        console.log('BUTTON_PRESS: Command sent successfully.');
+      },
+      `Command sent: ${command}`,
+      'Failed to send command'
+    );
   };
 
-  const disconnectDevice = async (): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
-    try {
-      await BluetoothSerial.disconnect();
-      setConnectedDevice(null);
-      showAlertDialog('Disconnected', 'Disconnected from device.');
-    } catch (error) {
-      console.error('Failed to disconnect:', error);
-      showAlertDialog('Error', 'Failed to disconnect from device.');
-    }
-  };
-
-  const sendCommand = async (command: string): Promise<void> => {
-    // Add null check for BluetoothSerial
-    if (!BluetoothSerial) {
-      showAlertDialog('Error', 'Bluetooth module not available. Please restart the app.');
-      return;
-    }
-    if (!connectedDevice) {
-      showAlertDialog('Not Connected', 'Please connect to a device first.');
-      return;
-    }
-
-    try {
-      await BluetoothSerial.write(command);
-      console.log('Command sent:', command);
-      showAlertDialog('Command Sent', `Sent: ${command}`);
-    } catch (error) {
-      console.error('Failed to send command:', error);
-      showAlertDialog('Error', 'Failed to send command.');
-    }
-  };
-
-  // Add these functions for settings
   const toggleDarkMode = (value: boolean) => {
+    console.log('SETTINGS: Toggle Dark Mode:', value);
     setAppState(prev => ({ ...prev, darkMode: value }));
   };
 
   const toggleMockMode = (value: boolean) => {
+    console.log('SETTINGS: Toggle Mock Mode:', value);
     setAppState(prev => ({ ...prev, mockMode: value }));
   };
 
   const clearDevices = () => {
+    console.log('SETTINGS: Clear Devices button clicked.');
     setDevices([]);
     showAlertDialog('Success', 'Device list cleared');
   };
 
-  const resetApp = () => {
+  const resetApp = async () => {
+    console.log('SETTINGS: Reset App button clicked.');
+    await safeDisconnect(); // Disconnect first
     setDevices([]);
     setConnectedDevice(null);
     setIsEnabled(false);
     setSensorData({});
     showAlertDialog('App Reset', 'App has been reset to initial state');
+    console.log('SETTINGS: App reset complete.');
   };
 
-  // Renders each device item in the FlatList
-  const renderDeviceItem: ListRenderItem<BluetoothDevice> = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => connectToDevice(item)}
-      style={styles.deviceItemButton}
-    >
-      <Text style={styles.deviceItemButtonText}>{`${item.name || item.id} - ${item.address || item.id}`}</Text>
-    </TouchableOpacity>
-  );
 
   // Home Screen Component
   const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+    const currentStyles = appState.darkMode ? darkStyles : styles;
+
     useEffect(() => {
+      console.log('HOME_SCREEN_USE_EFFECT: Setting navigation options.');
       navigation.setOptions({
         headerRight: () => (
           <TouchableOpacity
             onPress={() => navigation.navigate('Settings')}
             style={{ marginRight: 15 }}
           >
-            <Text style={{ fontSize: 16, color: '#007AFF' }}>Settings</Text>
+            <Text style={{ fontSize: 16, color: currentStyles.headerTintColor?.color || '#007AFF' }}>Settings</Text>
           </TouchableOpacity>
         ),
-        headerTitleStyle: styles.headerTitle,
+        headerTitleStyle: currentStyles.headerTitle,
+        headerStyle: currentStyles.header,
       });
-    }, [navigation]);
+    }, [navigation, currentStyles]);
+
+    // This conditional render is important.
+    if (!bluetoothReady) {
+      console.log('HOME_SCREEN_RENDER: Bluetooth not ready, showing "Initializing Bluetooth..." screen.');
+      return (
+        <View style={currentStyles.container}>
+          <Text style={currentStyles.text}>Initializing Bluetooth...</Text>
+        </View>
+      );
+    }
+    // This will only log if bluetoothReady becomes true.
+    console.log('HOME_SCREEN_RENDER: Bluetooth is ready, rendering main Home Screen UI.');
+
+    const renderDeviceItemThemed: ListRenderItem<BluetoothDevice> = ({ item }) => (
+      <TouchableOpacity
+        onPress={() => connectToDevice(item)}
+        style={currentStyles.deviceItemButton}
+      >
+        <Text style={currentStyles.deviceItemButtonText}>{`${item.name || item.id} - ${item.address || item.id}`}</Text>
+      </TouchableOpacity>
+    );
 
     return (
       <ScrollView
-        style={styles.container}
+        style={currentStyles.container}
         contentContainerStyle={{ paddingBottom: 50 }}
       >
         <View>
-          <Text style={styles.sectionTitle}>
+          <Text style={currentStyles.sectionTitle}>
             Bluetooth Status: {isEnabled ? 'Enabled' : 'Disabled'}
           </Text>
           <TouchableOpacity
             onPress={enableBluetooth}
             disabled={isEnabled}
-            style={[styles.button, isEnabled && styles.buttonDisabled]}
+            style={[
+              currentStyles.button,
+              isEnabled && currentStyles.buttonDisabled,
+            ]}
           >
-            <Text style={styles.buttonText}>Enable Bluetooth</Text>
+            <Text style={currentStyles.buttonText}>Enable Bluetooth</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={disableBluetooth}
             disabled={!isEnabled}
-            style={[styles.button, !isEnabled && styles.buttonDisabled]}
+            style={[
+              currentStyles.button,
+              !isEnabled && currentStyles.buttonDisabled,
+            ]}
           >
-            <Text style={styles.buttonText}>Disable Bluetooth</Text>
+            <Text style={currentStyles.buttonText}>Disable Bluetooth</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={discoverDevices}
             disabled={!isEnabled}
-            style={[styles.button, !isEnabled && styles.buttonDisabled]}
+            style={[
+              currentStyles.button,
+              !isEnabled && currentStyles.buttonDisabled,
+            ]}
           >
-            <Text style={styles.buttonText}>Discover Devices</Text>
+            <Text style={currentStyles.buttonText}>Discover Devices</Text>
           </TouchableOpacity>
 
           {connectedDevice ? (
             <View>
-              <Text style={styles.connectedText}>
+              <Text style={currentStyles.connectedText}>
                 Connected to: {connectedDevice.name || connectedDevice.id}
               </Text>
 
               <TouchableOpacity
                 onPress={disconnectDevice}
-                style={styles.button}
+                style={currentStyles.button}
               >
-                <Text style={styles.buttonText}>Disconnect</Text>
+                <Text style={currentStyles.buttonText}>Disconnect</Text>
               </TouchableOpacity>
 
-              <Text style={styles.sectionTitle}>Sensor Data:</Text>
-              <View style={styles.table}>
-                <View style={styles.tableRow}>
-                  <Text style={styles.tableHeader}>Sensor</Text>
-                  <Text style={styles.tableHeader}>Temp (°C)</Text>
-                  <Text style={styles.tableHeader}>Humidity (%)</Text>
+              <Text style={currentStyles.sectionTitle}>Sensor Data:</Text>
+              <View style={currentStyles.table}>
+                <View style={currentStyles.tableRow}>
+                  <Text style={currentStyles.tableHeader}>Sensor</Text>
+                  <Text style={currentStyles.tableHeader}>Temp (°C)</Text>
+                  <Text style={currentStyles.tableHeader}>Humidity (%)</Text>
                 </View>
                 {['Inside', 'Middle', 'Outside'].map(loc => {
                   let displayLoc = loc;
@@ -473,12 +632,12 @@ const App: React.FC = () => {
                     displayLoc = 'Upper Tray';
                   }
                   return (
-                    <View style={styles.tableRow} key={loc}>
-                      <Text style={styles.tableCell}>{String(displayLoc)}</Text>
-                      <Text style={styles.tableCell}>
+                    <View style={currentStyles.tableRow} key={loc}>
+                      <Text style={currentStyles.tableCell}>{String(displayLoc)}</Text>
+                      <Text style={currentStyles.tableCell}>
                         {String((sensorData as any)?.[`T_${loc}`] ?? 'N/A')}
                       </Text>
-                      <Text style={styles.tableCell}>
+                      <Text style={currentStyles.tableCell}>
                         {String((sensorData as any)?.[`H_${loc}`] ?? 'N/A')}
                       </Text>
                     </View>
@@ -486,37 +645,41 @@ const App: React.FC = () => {
                 })}
               </View>
 
-              <View style={styles.weightBox}>
-                <Text style={styles.weightText}>
+              <View style={currentStyles.weightBox}>
+                <Text style={currentStyles.weightText}>
                   {`Weight: ${String(sensorData['W'] ?? 'N/A')}g`}
                 </Text>
               </View>
               <View
                 style={[
-                  styles.powerBox,
+                  currentStyles.powerBox,
                   sensorData['POWER'] === 'SOLAR'
-                    ? styles.solarPower
-                    : styles.acPower,
+                    ? currentStyles.solarPower
+                    : currentStyles.acPower,
                 ]}>
-                <Text style={styles.powerBoxText}>
+                <Text style={currentStyles.powerBoxText}>
                   {`Power: ${String(sensorData['POWER'] ?? 'N/A')}`}
                 </Text>
               </View>
 
-              <Text style={styles.sectionTitle}>Controls:</Text>
-              <Button title="Tare Scale (T)" onPress={() => sendCommand('t')} />
+              <Text style={currentStyles.sectionTitle}>Controls:</Text>
+              <Button
+                title="Tare Scale (T)"
+                onPress={() => sendCommand('t')}
+                color={currentStyles.button?.backgroundColor || '#007AFF'}
+              />
             </View>
           ) : (
             <View>
-              <Text style={styles.sectionTitle}>Available Devices:</Text>
+              <Text style={currentStyles.sectionTitle}>Available Devices:</Text>
               <FlatList
                 data={devices}
-                renderItem={renderDeviceItem}
+                renderItem={renderDeviceItemThemed}
                 keyExtractor={item => item.id}
                 scrollEnabled={false}
                 ListEmptyComponent={
                   <View>
-                    <Text>
+                    <Text style={currentStyles.text}>
                       No devices found. Ensure Bluetooth is on and device is discoverable.
                     </Text>
                   </View>
@@ -531,13 +694,55 @@ const App: React.FC = () => {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: appState.darkMode
+              ? darkStyles.header.backgroundColor
+              : styles.header.backgroundColor,
+          },
+          headerTitleStyle: {
+            color: appState.darkMode
+              ? darkStyles.headerTitle.color
+              : styles.headerTitle.color,
+            fontSize: 22,
+            fontWeight: 'bold'
+          },
+        }}
+      >
         <Stack.Screen
           name="Home"
           component={HomeScreen}
-          options={{ title: 'RSK Solar Dehydrator' }}
+          options={({ navigation }) => ({
+            title: 'RSK Solar Dehydrator',
+            headerRight: () => (
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Settings')}
+                style={{ marginRight: 15 }}
+              >
+                <Text style={{
+                  fontSize: 16,
+                  color: appState.darkMode
+                    ? darkStyles.text.color
+                    : styles.text.color
+                }}>
+                  Settings
+                </Text>
+              </TouchableOpacity>
+            ),
+          })}
         />
-        <Stack.Screen name="Settings">
+        <Stack.Screen
+          name="Settings"
+          options={{
+            title: 'Settings',
+            headerStyle: {
+              backgroundColor: appState.darkMode
+                ? darkStyles.header.backgroundColor
+                : styles.header.backgroundColor,
+            },
+          }}
+        >
           {(props) => (
             <SettingsScreen
               {...props}
@@ -547,6 +752,7 @@ const App: React.FC = () => {
               onMockModeChange={toggleMockMode}
               onClearDevices={clearDevices}
               onResetApp={resetApp}
+              currentStyles={appState.darkMode ? darkStyles : styles}
             />
           )}
         </Stack.Screen>
@@ -562,245 +768,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-// --- START: Stylesheet in src/styles/AppStyles.ts (content to be moved) ---
-// You will move this entire block to src/styles/AppStyles.ts
-// and update the import path at the top of this file.
-
-/*
-// Stylesheet for the component
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 24,
-    backgroundColor: '#fff' // Lighter, modern background color
-  },
-  button: {
-    backgroundColor: '#007AFF', // A nice blue for active buttons
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 15,
-    marginVertical: 8,
-    alignItems: 'center', // Center text horizontally
-    justifyContent: 'center', // Center text vertically
-    shadowColor: '#000', // Subtle shadow for depth
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4, // Android shadow
-  },
-  buttonText: {
-    color: '#FFFFFF', // White text
-    fontSize: 18,
-    fontWeight: '600', // Semi-bold text
-  },
-  buttonDisabled: {
-    backgroundColor: '#CCCCCC', // Grey for disabled buttons
-    shadowOpacity: 0, // No shadow when disabled
-    elevation: 0, // No elevation when disabled
-  },
-  // Style for the FlatList item buttons
-  deviceItemButton: {
-    backgroundColor: '#6C7A89', // A different color for device items
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    marginVertical: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deviceItemButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-  weightBox: {
-    borderRadius: 40,
-    padding: 12,
-    margin: 10,
-    backgroundColor: '#7678ed',
-    borderWidth: 0,
-    alignItems: 'center',
-    shadowColor: '#000', // Soft shadow for depth
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2, // Android shadow
-  },
-  powerBox: {
-    borderRadius: 40,
-    padding: 12,
-    margin: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000', // Shadow for depth
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3, // For Android
-  },
-  title: {
-    fontSize: 28, // Slightly larger for prominence
-    fontWeight: '900', // Stronger bold
-    color: '#000', // Darker, more professional text color
-    marginBottom: 0, // More space below the title
-    textAlign: 'center',
-    letterSpacing: 0.8, // Subtle letter spacing for a refined look
-    textShadowColor: 'rgba(0, 0, 0, 0.05)', // Very subtle text shadow
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-    marginTop: 20,
-    fontFamily: 'Times New Roman',
-  },
-  sectionTitle: {
-    fontSize: 20, // Slightly larger than original
-    fontWeight: '600', // Medium bold
-    color: '#000', // Slightly lighter than main title color
-    marginTop: 25, // More top margin
-    marginBottom: 15, // More bottom margin
-    borderBottomWidth: 1, // Subtle separator
-    borderBottomColor: '#E0E0E0',
-    paddingBottom: 8,
-  },
-  connectedText: {
-    fontSize: 17,
-    color: '#27AE60', // A vibrant, clear green
-    marginTop: 15,
-    marginBottom: 15,
-    textAlign: 'center',
-    fontWeight: '600', // Slightly bolder
-    paddingVertical: 10,
-    backgroundColor: '#EBF9F1', // Light green background for emphasis
-    borderRadius: 40, // Rounded corners for the status message
-    marginHorizontal: 10, // Added horizontal margin
-  },
-  dataText: {
-    fontSize: 16,
-    color: '#34495E',
-    marginVertical: 6, // Adjusted vertical margin
-    lineHeight: 24, // Improved line height for readability
-  },
-  weightText: {
-    fontSize: 18, // Larger font for prominence
-    fontWeight: '700', // Semi-bold (not too aggressive)
-    color: '#FFFFFF', // Dark gray for readability
-    fontFamily: 'Roboto', // Match your theme
-  },
-  powerBoxText: {
-    fontSize: 20,
-    color: '#FFFFFF', // Ensures contrast on colored backgrounds
-    //fontWeight: 'bold', // Only applies to this text
-  },
-  solarPower: {
-    backgroundColor: '#4CAF50',
-  },
-  acPower: {
-    backgroundColor: '#dd2d4a',
-  },
-  table: {
-    // borderWidth: 0, // Removed main border, relying on shadows and cell borders
-    borderRadius: 12, // More pronounced rounded corners for the whole table
-    overflow: 'hidden', // Ensures content respects rounded corners
-    marginBottom: 20,
-    backgroundColor: '#FFFFFF', // White background for table
-    shadowColor: '#000', // Subtle shadow for depth
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5, // Android shadow
-  },
-  tableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0', // Very light separator
-    alignItems: 'center', // Vertically align content in rows
-  },
-  tableHeader: {
-    flex: 1,
-    paddingVertical: 12, // Increased padding
-    paddingHorizontal: 8,
-    fontWeight: '700', // Stronger bold
-    backgroundColor: '#ECF0F1', // Light grey header background
-    color: '#2C3E50', // Dark text for headers
-    textAlign: 'center',
-    textTransform: 'uppercase', // Uppercase for headers
-    fontSize: 13, // Slightly smaller font for headers
-    letterSpacing: 0.5,
-  },
-  tableCell: {
-    flex: 1,
-    paddingVertical: 10, // Increased padding
-    paddingHorizontal: 8,
-    textAlign: 'center',
-    color: '#34495E',
-    fontSize: 15,
-    fontFamily: 'Times New Roman',
-  },
-  // Header Title style for Navigation
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#2C3E50', // Example: a dark grey color
-  },
-});
-
-// Styles for the custom alert dialog
-const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  alertContainer: {
-    width: '80%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  alertTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  alertMessage: {
-    fontSize: 16,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  alertButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  alertButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});
-
-// Add dark mode styles
-const darkStyles = StyleSheet.create({
-  container: {
-    backgroundColor: '#121212',
-  },
-  title: {
-    color: '#FFFFFF',
-  },
-  sectionTitle: {
-    color: '#FFFFFF',
-    borderBottomColor: '#333',
-  },
-  // Add other dark mode style overrides as needed
-});
-
-export default App;
-*/
-// --- END: Stylesheet (Move this block to src/styles/AppStyles.ts) ---

@@ -103,7 +103,7 @@ const AppStyles = StyleSheet.create({
     borderRadius: 40,
     marginHorizontal: 10,
   },
-  dataText: {
+  dataText: { // Not currently used, but good to have a style
     fontSize: 16,
     color: '#34495E',
     marginVertical: 6,
@@ -163,11 +163,21 @@ const AppStyles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Times New Roman',
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#2C3E50',
+  header: {
+    backgroundColor: '#ECF0F1',
   },
+  headerTitle: {
+    color: '#2C3E50',
+    fontSize: 22,
+    fontWeight: 'bold'
+  },
+  headerTintColor: {
+    color: '#1A1A1A'
+  }, // Changed from object to direct value
+  text: {
+    color: '#000',
+    fontSize: 16,
+  }
 });
 
 export const modalStyles = StyleSheet.create({
@@ -211,19 +221,201 @@ export const modalStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  header: {
+    backgroundColor: '#ECF0F1',
+  },
+  headerTitle: {
+    color: '#2C3E50',
+    fontSize: 22,
+    fontWeight: 'bold'
+  },
+  headerTintColor: {
+    color: '#1A1A1A'
+  }, // Changed from object to direct value
+  text: {
+    color: '#000',
+    fontSize: 16,
+  }
 });
 
 export const darkStyles = StyleSheet.create({
   container: {
+    flex: 1,
+    padding: 24,
     backgroundColor: '#121212',
   },
+  button: {
+    backgroundColor: '#0056b3',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 15,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  buttonText: {
+    color: '#E0E0E0',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  buttonDisabled: {
+    backgroundColor: '#555555',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  deviceItemButton: {
+    backgroundColor: '#4A4A4A',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginVertical: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deviceItemButtonText: {
+    color: '#E0E0E0',
+    fontSize: 16,
+  },
+  weightBox: {
+    borderRadius: 40,
+    padding: 12,
+    margin: 10,
+    backgroundColor: '#5C5FBB',
+    borderWidth: 0,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  powerBox: {
+    borderRadius: 40,
+    padding: 12,
+    margin: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   title: {
-    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#E0E0E0',
+    marginBottom: 0,
+    textAlign: 'center',
+    letterSpacing: 0.8,
+    textShadowColor: 'rgba(255, 255, 255, 0.05)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+    marginTop: 20,
+    fontFamily: 'Times New Roman',
   },
   sectionTitle: {
-    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#E0E0E0',
+    marginTop: 25,
+    marginBottom: 15,
+    borderBottomWidth: 1,
     borderBottomColor: '#333',
+    paddingBottom: 8,
   },
+  connectedText: {
+    fontSize: 17,
+    color: '#82E0AA',
+    marginTop: 15,
+    marginBottom: 15,
+    textAlign: 'center',
+    fontWeight: '600',
+    paddingVertical: 10,
+    backgroundColor: '#1B4D3E',
+    borderRadius: 40,
+    marginHorizontal: 10,
+  },
+  dataText: {
+    fontSize: 16,
+    color: '#B0B0B0',
+    marginVertical: 6,
+    lineHeight: 24,
+  },
+  weightText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Roboto',
+  },
+  powerBoxText: {
+    fontSize: 20,
+    color: '#FFFFFF',
+  },
+  solarPower: {
+    backgroundColor: '#388E3C',
+  },
+  acPower: {
+    backgroundColor: '#C62828',
+  },
+  table: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 20,
+    backgroundColor: '#1E1E1E',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2C2C2C',
+    alignItems: 'center',
+  },
+  tableHeader: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    fontWeight: '700',
+    backgroundColor: '#2C2C2C',
+    color: '#E0E0E0',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    fontSize: 13,
+    letterSpacing: 0.5,
+  },
+  tableCell: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    textAlign: 'center',
+    color: '#B0B0B0',
+    fontSize: 15,
+    fontFamily: 'Times New Roman',
+  },
+  header: {
+    backgroundColor: '#1E1E1E',
+  },
+  headerTitle: {
+    color: '#E0E0E0',
+    fontSize: 22,
+    fontWeight: 'bold'
+  },
+  headerTintColor: {
+    color: '#FFFFFF'
+  },
+  text: {
+    color: '#E0E0E0',
+    fontSize: 16,
+  }
 });
 
 export default AppStyles;
